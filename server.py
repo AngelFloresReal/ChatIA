@@ -26,14 +26,36 @@ VALID_KEYS = {
     "secret_admin_999": "admin"
 }
 
-# emoji simple
 EMOJI_MAP = {
-    ":)": "😀",
-    ":(": "☹️",
-    ":D": "😄",
-    "<3": "❤️",
-    ";)": "😉"
+    ":)": "😊",     # Sonrisa
+    ":(": "☹️",     # Tristeza
+    ":D": "😁",     # Sonrisa amplia
+    ":P": "😜",     # Lengua afuera
+    ";)": "😉",     # Guiño
+    "B)": "😎",     # Gafas de sol
+    ":|": "😐",     # Neutral
+    ":O": "😮",     # Sorprendido
+    "xD": "😂",     # Risa
+    ":*": "😘",     # Beso
+    ":3": "😸",     # Carita de gato
+    "<3": "❤️",     # Corazón
+    ":'(": "😭",     # Llorando
+    ":v": "😋",     # Carita traviesa
+    "o:)": "😇",    # Ángel
+    ">:(": "😠",     # Enfado
+    "T_T": "😢",     # Llorando fuerte
+    "^_^": "☺️",     # Sonrisa tierna
+    "-_-": "😑",     # Desinterés
+    "O:)": "😇",     # Ángel (alternativa)
+    "X_x": "😵",     # Desmayado
+    ":S": "😖",     # Confusión
+    "B-)": "😎",     # Gafas de sol con estilo
+    "<(._.)>": "👽", # Carita alienígena
+    "°-°": "😲",     # Sorprendido
+    ":-*": "😘",     # Beso (alternativo)
+    "C:": "🐱",      # Carita gato (alternativa)
 }
+
 
 def apply_emojis(text: str) -> str:
     for k, v in EMOJI_MAP.items():
