@@ -16,7 +16,6 @@ import os
 ENCODING = "utf-8"
 RESET_COLOR = '\033[0m'
 
-# Detectar si el terminal soporta colores
 def supports_color():
     """Detecta si el terminal soporta colores ANSI"""
     return (
@@ -117,7 +116,6 @@ def main():
     auth_flag = {"status": None}
     threading.Thread(target=recv_thread, args=(sock, auth_flag), daemon=True).start()
 
-    # Esperar hasta saber si la auth fue exitosa o no
     print("Autenticando...")
     print("...")
     while auth_flag["status"] is None:
@@ -134,7 +132,7 @@ def main():
         sock.sendall((json.dumps({"type": "join", "channel": canal}, ensure_ascii=False) + "\n").encode(ENCODING))
         current_channel = canal
 
-    print("\n💬 Chat iniciado!")
+    print("\n Chat iniciado!")
     print("Comandos: /join <canal>, /quit, /help")
     print("=" * 50)
     
@@ -145,12 +143,12 @@ def main():
                 continue
                 
             if line.startswith("/quit"):
-                print("👋 Saliendo...")
+                print(" Saliendo...")
                 sock.close()
                 break
                 
             if line.startswith("/help"):
-                print("\n📋 Comandos disponibles:")
+                print("\  Comandos disponibles:")
                 print("  /join <canal>  - Unirse a un canal")
                 print("  /quit          - Salir del chat")
                 print("  /help          - Mostrar esta ayuda")
@@ -161,7 +159,7 @@ def main():
                 continue
                 
             if line.startswith("/colors"):
-                print("\n🌈 Prueba de colores:")
+                print("\n Prueba de colores:")
                 test_colors = [
                     '\033[91m', '\033[92m', '\033[93m', '\033[94m', 
                     '\033[95m', '\033[96m', '\033[97m'
@@ -176,11 +174,11 @@ def main():
                 if newch:
                     sock.sendall((json.dumps({"type": "join", "channel": newch}, ensure_ascii=False) + "\n").encode(ENCODING))
                     current_channel = newch
-                    print(f"🔄 Cambiando a canal: {newch}")
+                    print(f" Cambiando a canal: {newch}")
                 continue
                 
             if not current_channel:
-                print("⚠️  No estás en ningún canal. Usa /join <canal> para unirte.")
+                print("  No estás en ningún canal. Usa /join <canal> para unirte.")
                 continue
                 
             payload = {"type": "msg", "channel": current_channel, "text": line}
@@ -190,7 +188,7 @@ def main():
         print("\n👋 Cerrando cliente...")
         sock.close()
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f" Error: {e}")
         sock.close()
 
 if __name__ == "__main__":

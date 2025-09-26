@@ -48,7 +48,6 @@ def init_db():
         )
     ''')
     
-    # Crear usuarios por defecto si la tabla está vacía
     cursor.execute('SELECT COUNT(*) FROM users')
     if cursor.fetchone()[0] == 0:
         default_users = [
@@ -136,7 +135,6 @@ class ChatServer:
             if not self.channels[client.channel]:
                 del self.channels[client.channel]
             
-            # Notificar que el usuario salió del canal
             if client.user:
                 self.broadcast_to_channel(
                     client.channel,
@@ -146,17 +144,14 @@ class ChatServer:
 
     def add_client_to_channel(self, client, channel):
         """Agrega un cliente a un canal"""
-        # Remover del canal anterior si existe
         self.remove_client_from_channel(client)
         
-        # Agregar al nuevo canal
         if channel not in self.channels:
             self.channels[channel] = set()
         
         self.channels[channel].add(client)
         client.channel = channel
         
-        # Notificar que el usuario se unió
         if client.user:
             self.broadcast_to_channel(
                 channel,
@@ -167,7 +162,6 @@ class ChatServer:
             client.send_json({"type": "system", "text": f"Te uniste al canal {channel}"})
 
     def start(self):
-        # Inicializar base de datos
         init_db()
         
         threading.Thread(target=self.admin_console, daemon=True).start()
@@ -200,7 +194,6 @@ class ChatServer:
         print("[SHUTDOWN] Avisando a todos los clientes…")
         self.broadcast_all_channels_system("[ADMIN] El servidor se cerrará ahora.")
         
-        # Cerrar todas las conexiones de clientes
         with self.clients_lock:
             for c in list(self.clients):
                 try:
@@ -276,7 +269,6 @@ class ChatServer:
                     if not line:
                         break
                     
-                    # Parse JSON
                     try:
                         obj = json.loads(line.strip())
                     except json.JSONDecodeError:
@@ -285,7 +277,6 @@ class ChatServer:
                     msg_type = obj.get("type")
                     
                     if msg_type == "auth":
-                        # Proceso de autenticación
                         username = obj.get("username", "").strip()
                         password = obj.get("password", "").strip()
                         
@@ -302,7 +293,6 @@ class ChatServer:
                             print(f"[AUTH] Intento fallido para {username} desde {client.addr}")
                     
                     elif msg_type == "join":
-                        # Unirse a un canal
                         if not client.user:
                             client.send_json({"type": "system", "text": "Debes autenticarte primero"})
                             continue
@@ -316,7 +306,6 @@ class ChatServer:
                         print(f"[JOIN] {client.user} se unió al canal {channel}")
                     
                     elif msg_type == "msg":
-                        # Enviar mensaje al canal
                         if not client.user:
                             client.send_json({"type": "system", "text": "Debes autenticarte primero"})
                             continue
@@ -335,7 +324,6 @@ class ChatServer:
                             client.send_json({"type": "system", "text": f"No estás en el canal {channel}"})
                             continue
                         
-                        # Aplicar emojis y broadcast
                         processed_text = apply_emojis(text)
                         message = {
                             "type": "msg",
