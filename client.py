@@ -1,15 +1,12 @@
-#!/usr/bin/env python3
 """
 Cliente de consola.
 Protocolo JSON por línea (mismo formato que el servidor).
 Uso:
- - al iniciar pide host, puerto, clave (key) y canal
- - entrada en consola: escribe el mensaje y presiona Enter para enviarlo al canal seleccionado
- - comandos cliente:
+ - al iniciar pide host, puerto, usuario, contraseña y canal
+ - comandos:
     /join <canal>   -> cambiar de canal
     /quit           -> salir
 """
-
 import socket
 import threading
 import json
@@ -17,13 +14,15 @@ import sys
 
 ENCODING = "utf-8"
 
-def recv_thread(sock):
+def recv_thread(sock, auth_flag):
     f = sock.makefile("r", encoding=ENCODING)
     try:
         while True:
             line = f.readline()
             if not line:
                 print("[INFO] Conexión cerrada por el servidor.")
+                if auth_flag["status"] is None:
+                    auth_flag["status"] = False
                 break
             try:
                 obj = json.loads(line)
@@ -32,6 +31,11 @@ def recv_thread(sock):
             t = obj.get("type")
             if t == "system":
                 print(f"[SYSTEM] {obj.get('text')}")
+                text = obj.get("text", "").lower()
+                if "usuario o contraseña inválidos" in text:
+                    auth_flag["status"] = False
+                elif "autenticado como" in text:
+                    auth_flag["status"] = True
             elif t == "msg":
                 ch = obj.get("channel")
                 frm = obj.get("from")
@@ -53,27 +57,38 @@ def main():
         print("Puerto inválido")
         return
 
-    key = input("Introduce tu clave de acceso: ").strip()
-    if not key:
-        print("Clave requerida")
+    username = input("Usuario: ").strip()
+    password = input("Contraseña: ").strip()
+    if not username or not password:
+        print("Usuario y contraseña requeridos")
         return
 
-    # Conectar
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((host, port))
-    # enviar auth
-    sock.sendall((json.dumps({"type":"auth","key": key}, ensure_ascii=False) + "\n").encode(ENCODING))
 
-    # start receiving thread
-    threading.Thread(target=recv_thread, args=(sock,), daemon=True).start()
+    auth_payload = {
+        "type": "auth",
+        "username": username,
+        "password": password
+    }
+    sock.sendall((json.dumps(auth_payload, ensure_ascii=False) + "\n").encode(ENCODING))
 
-    # join canal inicial (opcional)
+    auth_flag = {"status": None}
+    threading.Thread(target=recv_thread, args=(sock, auth_flag), daemon=True).start()
+
+    # Esperar hasta saber si la auth fue exitosa o no
+    while auth_flag["status"] is None:
+        pass
+
+    if not auth_flag["status"]:
+        print("Error de autenticación. Cerrando cliente.")
+        return
+
     canal = input("Canal a unir (por ejemplo general) — deja vacío para unirse después: ").strip()
+    current_channel = None
     if canal:
-        sock.sendall((json.dumps({"type":"join","channel": canal}, ensure_ascii=False) + "\n").encode(ENCODING))
+        sock.sendall((json.dumps({"type": "join", "channel": canal}, ensure_ascii=False) + "\n").encode(ENCODING))
         current_channel = canal
-    else:
-        current_channel = None
 
     print("Escribe mensajes. Comandos: /join <canal>, /quit")
     try:
@@ -88,14 +103,13 @@ def main():
             if line.startswith("/join "):
                 newch = line.split(maxsplit=1)[1].strip()
                 if newch:
-                    sock.sendall((json.dumps({"type":"join","channel": newch}, ensure_ascii=False) + "\n").encode(ENCODING))
+                    sock.sendall((json.dumps({"type": "join", "channel": newch}, ensure_ascii=False) + "\n").encode(ENCODING))
                     current_channel = newch
                 continue
-            # enviar mensaje al canal actual
             if not current_channel:
                 print("No estás en ningún canal. Usa /join <canal> para unirte.")
                 continue
-            payload = {"type":"msg","channel": current_channel, "text": line}
+            payload = {"type": "msg", "channel": current_channel, "text": line}
             sock.sendall((json.dumps(payload, ensure_ascii=False) + "\n").encode(ENCODING))
     except KeyboardInterrupt:
         print("Cerrando cliente")
