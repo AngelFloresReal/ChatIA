@@ -1,5 +1,5 @@
 """
-Servidor de chat con canales y autenticación por usuario/contraseña en SQLite.
+Servidor de chat con canales y autenticación segura usando bcrypt.
 Protocolo: mensajes JSON por línea.
 Campos JSON usados:
  - type: "auth", "join", "msg", "system"
@@ -17,9 +17,10 @@ import traceback
 import sqlite3
 import sys
 import os
+import bcrypt
 
 HOST = "0.0.0.0"
-PORT = 12345
+PORT = 12
 ENCODING = "utf-8"
 DB_PATH = "chat.db"
 
@@ -36,6 +37,20 @@ def apply_emojis(text: str) -> str:
         text = text.replace(k, v)
     return text
 
+def hash_password(password: str) -> str:
+    """Hashea una contraseña usando bcrypt"""
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+    return hashed.decode('utf-8')
+
+def verify_password(password: str, hashed: str) -> bool:
+    """Verifica una contraseña contra su hash"""
+    try:
+        return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+    except Exception as e:
+        print(f"[BCRYPT ERROR] {e}")
+        return False
+
 def init_db():
     """Inicializa la base de datos con usuarios por defecto si no existe"""
     conn = sqlite3.connect(DB_PATH)
@@ -44,7 +59,7 @@ def init_db():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
-            password TEXT NOT NULL
+            password_hash TEXT NOT NULL
         )
     ''')
     
@@ -54,26 +69,56 @@ def init_db():
             ('admin', 'admin123'),
             ('user1', 'pass1'),
             ('user2', 'pass2'),
-            ('test', 'test')
+            ('test', 'test'),
+            ('alice', '1234'),
+            ('beto', '4567')
         ]
-        cursor.executemany('INSERT INTO users (username, password) VALUES (?, ?)', default_users)
-        print("[DB] Usuarios por defecto creados: admin, user1, user2, test")
-    
+        
+        print("[DB] Creando usuarios por defecto con contraseñas hasheadas...")
+        for username, plain_password in default_users:
+            hashed = hash_password(plain_password)
+            cursor.execute('INSERT INTO users (username, password_hash) VALUES (?, ?)', 
+                         (username, hashed))
+            print(f"[DB]  ✓ Usuario '{username}' creado")
+        
     conn.commit()
     conn.close()
 
 def authenticate_user(username: str, password: str) -> bool:
-    """Autentica un usuario contra la base de datos"""
+    """Autentica un usuario contra la base de datos usando bcrypt"""
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute('SELECT password FROM users WHERE username = ?', (username,))
+        cursor.execute('SELECT password_hash FROM users WHERE username = ?', (username,))
         result = cursor.fetchone()
         conn.close()
         
-        if result and result[0] == password:
-            return True
+        if result:
+            return verify_password(password, result[0])
         return False
+    except Exception as e:
+        print(f"[DB ERROR] {e}")
+        return False
+
+def register_user(username: str, password: str) -> bool:
+    """Registra un nuevo usuario en la base de datos"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # Verificar si el usuario ya existe
+        cursor.execute('SELECT username FROM users WHERE username = ?', (username,))
+        if cursor.fetchone():
+            conn.close()
+            return False
+        
+        # Crear el nuevo usuario con contraseña hasheada
+        hashed = hash_password(password)
+        cursor.execute('INSERT INTO users (username, password_hash) VALUES (?, ?)', 
+                      (username, hashed))
+        conn.commit()
+        conn.close()
+        return True
     except Exception as e:
         print(f"[DB ERROR] {e}")
         return False
@@ -108,6 +153,7 @@ class ChatServer:
         self.channels = {}
         self.running = True
         print(f"[INIT] Servidor escuchando en {host}:{port}")
+        print(f"[INIT] Seguridad: Contraseñas hasheadas con bcrypt ✓")
 
     def broadcast_to_channel(self, channel: str, obj: dict, exclude_client=None):
         """Envía un mensaje a todos los usuarios de un canal"""
@@ -120,8 +166,7 @@ class ChatServer:
                     client.send_json(obj)
 
     def broadcast_all_channels_system(self, text: str):
-        """Envía un mensaje de sistema a TODOS los clientes conectados,
-        sin importar el canal."""
+        """Envía un mensaje de sistema a TODOS los clientes conectados"""
         payload = {"type": "system", "text": apply_emojis(text)}
         with self.clients_lock:
             for c in list(self.clients):
@@ -226,16 +271,29 @@ class ChatServer:
             pass
 
     def admin_console(self):
-        print("[ADMIN] Comandos: sys:<mensaje> | list | shutdown")
+        print("[ADMIN] Comandos: sys:<mensaje> | list | shutdown | adduser:<user>:<pass>")
         while self.running:
             try:
                 line = input()
                 if not line:
                     continue
+                    
                 if line.startswith("sys:"):
                     text = line[len("sys:"):].strip()
                     self.broadcast_all_channels_system(f"[ADMIN] {text}")
                     print("[ADMIN] Mensaje de sistema enviado.")
+                    
+                elif line.startswith("adduser:"):
+                    parts = line[len("adduser:"):].split(":", 1)
+                    if len(parts) == 2:
+                        username, password = parts[0].strip(), parts[1].strip()
+                        if register_user(username, password):
+                            print(f"[ADMIN] Usuario '{username}' creado exitosamente")
+                        else:
+                            print(f"[ADMIN] Error: el usuario '{username}' ya existe")
+                    else:
+                        print("[ADMIN] Formato: adduser:<usuario>:<contraseña>")
+                        
                 elif line.strip() == "list":
                     with self.clients_lock:
                         total_clients = len([c for c in self.clients if c.alive])
@@ -246,11 +304,14 @@ class ChatServer:
                             for ch, members in self.channels.items():
                                 names = [c.user for c in members if c.user]
                                 print(f" - {ch}: {names} ({len(names)} usuarios)")
+                                
                 elif line.strip() == "shutdown":
                     self.shutdown()
                     break
+                    
                 else:
-                    print("[ADMIN] Comando desconocido. Usa sys:, list o shutdown")
+                    print("[ADMIN] Comandos: sys:<msg> | list | shutdown | adduser:<user>:<pass>")
+                    
             except EOFError:
                 break
             except Exception as e:
@@ -287,10 +348,10 @@ class ChatServer:
                         if authenticate_user(username, password):
                             client.user = username
                             client.send_json({"type": "system", "text": f"Autenticado como {username}"})
-                            print(f"[AUTH] Usuario {username} autenticado desde {client.addr}")
+                            print(f"[AUTH] ✓ Usuario {username} autenticado desde {client.addr}")
                         else:
                             client.send_json({"type": "system", "text": "Usuario o contraseña inválidos"})
-                            print(f"[AUTH] Intento fallido para {username} desde {client.addr}")
+                            print(f"[AUTH] ✗ Intento fallido para {username} desde {client.addr}")
                     
                     elif msg_type == "join":
                         if not client.user:
@@ -345,7 +406,6 @@ class ChatServer:
         except Exception as e:
             print(f"[CLIENT ERROR] Error en handle_client para {client.addr}: {e}")
         finally:
-            # Cleanup cuando el cliente se desconecta
             print(f"[DISC] Cliente {client.addr} desconectado")
             if client.user:
                 print(f"[DISC] Usuario {client.user} desconectado")

@@ -84,7 +84,7 @@ def main():
     print("=" * 30)
     
     host = input("Servidor (por defecto localhost): ").strip() or "localhost"
-    port_str = input("Puerto (por defecto 12345): ").strip() or "12345"
+    port_str = input("Puerto (por defecto 12): ").strip() or "12"
     try:
         port = int(port_str)
     except:
