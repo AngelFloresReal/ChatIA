@@ -1,28 +1,22 @@
 """
-Servidor de chat con canales y autenticación segura usando bcrypt.
+Servidor de chat con canales y cifrado simétrico de contraseñas usando Fernet.
 Protocolo: mensajes JSON por línea.
-Campos JSON usados:
- - type: "auth", "join", "msg", "system"
- - username: nombre de usuario (auth)
- - password: contraseña (auth)
- - channel: nombre del canal (join, msg)
- - from: nombre del usuario (msg)
- - text: contenido del mensaje (msg, system)
+NOTA: Este enfoque es educativo. Para producción se recomienda bcrypt.
 """
 
 import socket
 import threading
 import json
-import traceback
 import sqlite3
 import sys
 import os
-import bcrypt
+from cryptography.fernet import Fernet
 
 HOST = "0.0.0.0"
 PORT = 12
 ENCODING = "utf-8"
 DB_PATH = "chat.db"
+KEY_PATH = "secret.key"
 
 EMOJI_MAP = {
     ":)": "😊", ":(": "☹️", ":D": "😁", ":P": "😜", ";)": "😉", "B)": "😎",
@@ -37,19 +31,37 @@ def apply_emojis(text: str) -> str:
         text = text.replace(k, v)
     return text
 
-def hash_password(password: str) -> str:
-    """Hashea una contraseña usando bcrypt"""
-    salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
-    return hashed.decode('utf-8')
+def load_or_create_key():
+    """Carga la clave de cifrado o crea una nueva"""
+    if os.path.exists(KEY_PATH):
+        with open(KEY_PATH, 'rb') as f:
+            key = f.read()
+        print(f"[CRYPTO] ✓ Clave de cifrado cargada desde {KEY_PATH}")
+    else:
+        key = Fernet.generate_key()
+        with open(KEY_PATH, 'wb') as f:
+            f.write(key)
+        print(f"[CRYPTO] ✓ Nueva clave de cifrado generada y guardada en {KEY_PATH}")
+        print(f"[CRYPTO] ⚠️  IMPORTANTE: Guarda este archivo de forma segura!")
+    return key
 
-def verify_password(password: str, hashed: str) -> bool:
-    """Verifica una contraseña contra su hash"""
+# Inicializar el cifrador global
+CIPHER_KEY = load_or_create_key()
+cipher = Fernet(CIPHER_KEY)
+
+def encrypt_password(password: str) -> str:
+    """Cifra una contraseña usando Fernet"""
+    encrypted = cipher.encrypt(password.encode('utf-8'))
+    return encrypted.decode('utf-8')
+
+def decrypt_password(encrypted: str) -> str:
+    """Descifra una contraseña usando Fernet"""
     try:
-        return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+        decrypted = cipher.decrypt(encrypted.encode('utf-8'))
+        return decrypted.decode('utf-8')
     except Exception as e:
-        print(f"[BCRYPT ERROR] {e}")
-        return False
+        print(f"[CRYPTO ERROR] {e}")
+        return None
 
 def init_db():
     """Inicializa la base de datos con usuarios por defecto si no existe"""
@@ -59,7 +71,7 @@ def init_db():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
-            password_hash TEXT NOT NULL
+            password_encrypted TEXT NOT NULL
         )
     ''')
     
@@ -74,27 +86,29 @@ def init_db():
             ('beto', '4567')
         ]
         
-        print("[DB] Creando usuarios por defecto con contraseñas hasheadas...")
+        print("[DB] Creando usuarios con contraseñas cifradas...")
         for username, plain_password in default_users:
-            hashed = hash_password(plain_password)
-            cursor.execute('INSERT INTO users (username, password_hash) VALUES (?, ?)', 
-                         (username, hashed))
-            print(f"[DB]  ✓ Usuario '{username}' creado")
+            encrypted = encrypt_password(plain_password)
+            cursor.execute('INSERT INTO users (username, password_encrypted) VALUES (?, ?)', 
+                         (username, encrypted))
+            print(f"[DB]  ✓ Usuario '{username}' creado (cifrado simétrico)")
         
     conn.commit()
     conn.close()
 
 def authenticate_user(username: str, password: str) -> bool:
-    """Autentica un usuario contra la base de datos usando bcrypt"""
+    """Autentica un usuario descifrando y comparando la contraseña"""
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute('SELECT password_hash FROM users WHERE username = ?', (username,))
+        cursor.execute('SELECT password_encrypted FROM users WHERE username = ?', (username,))
         result = cursor.fetchone()
         conn.close()
         
         if result:
-            return verify_password(password, result[0])
+            decrypted = decrypt_password(result[0])
+            if decrypted:
+                return decrypted == password
         return False
     except Exception as e:
         print(f"[DB ERROR] {e}")
@@ -106,16 +120,14 @@ def register_user(username: str, password: str) -> bool:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         
-        # Verificar si el usuario ya existe
         cursor.execute('SELECT username FROM users WHERE username = ?', (username,))
         if cursor.fetchone():
             conn.close()
             return False
         
-        # Crear el nuevo usuario con contraseña hasheada
-        hashed = hash_password(password)
-        cursor.execute('INSERT INTO users (username, password_hash) VALUES (?, ?)', 
-                      (username, hashed))
+        encrypted = encrypt_password(password)
+        cursor.execute('INSERT INTO users (username, password_encrypted) VALUES (?, ?)', 
+                      (username, encrypted))
         conn.commit()
         conn.close()
         return True
@@ -153,7 +165,7 @@ class ChatServer:
         self.channels = {}
         self.running = True
         print(f"[INIT] Servidor escuchando en {host}:{port}")
-        print(f"[INIT] Seguridad: Contraseñas hasheadas con bcrypt ✓")
+        print(f"[INIT] 🔐 Seguridad: Cifrado simétrico con Fernet (AES-128)")
 
     def broadcast_to_channel(self, channel: str, obj: dict, exclude_client=None):
         """Envía un mensaje a todos los usuarios de un canal"""
@@ -271,7 +283,7 @@ class ChatServer:
             pass
 
     def admin_console(self):
-        print("[ADMIN] Comandos: sys:<mensaje> | list | shutdown | adduser:<user>:<pass>")
+        print("[ADMIN] Comandos: sys:<mensaje> | list | shutdown | adduser:<user>:<pass> | showpass:<user>")
         while self.running:
             try:
                 line = input()
@@ -293,6 +305,26 @@ class ChatServer:
                             print(f"[ADMIN] Error: el usuario '{username}' ya existe")
                     else:
                         print("[ADMIN] Formato: adduser:<usuario>:<contraseña>")
+                
+                elif line.startswith("showpass:"):
+                    username = line[len("showpass:"):].strip()
+                    try:
+                        conn = sqlite3.connect(DB_PATH)
+                        cursor = conn.cursor()
+                        cursor.execute('SELECT password_encrypted FROM users WHERE username = ?', (username,))
+                        result = cursor.fetchone()
+                        conn.close()
+                        
+                        if result:
+                            decrypted = decrypt_password(result[0])
+                            if decrypted:
+                                print(f"[ADMIN] Contraseña de '{username}': {decrypted}")
+                            else:
+                                print(f"[ADMIN] Error al descifrar la contraseña")
+                        else:
+                            print(f"[ADMIN] Usuario '{username}' no encontrado")
+                    except Exception as e:
+                        print(f"[ADMIN ERROR] {e}")
                         
                 elif line.strip() == "list":
                     with self.clients_lock:
@@ -310,7 +342,7 @@ class ChatServer:
                     break
                     
                 else:
-                    print("[ADMIN] Comandos: sys:<msg> | list | shutdown | adduser:<user>:<pass>")
+                    print("[ADMIN] Comandos: sys:<msg> | list | shutdown | adduser:<user>:<pass> | showpass:<user>")
                     
             except EOFError:
                 break
