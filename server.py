@@ -1,28 +1,25 @@
 """
-Servidor de chat con canales y autenticación segura usando bcrypt.
+Servidor de chat con canales y cifrado ASIMÉTRICO de contraseñas usando RSA.
 Protocolo: mensajes JSON por línea.
-Campos JSON usados:
- - type: "auth", "join", "msg", "system"
- - username: nombre de usuario (auth)
- - password: contraseña (auth)
- - channel: nombre del canal (join, msg)
- - from: nombre del usuario (msg)
- - text: contenido del mensaje (msg, system)
+NOTA EDUCATIVA: Este es un ejemplo de cifrado asimétrico.
+Cada usuario tiene su propio par de claves (pública/privada).
 """
 
 import socket
 import threading
 import json
-import traceback
 import sqlite3
 import sys
 import os
-import bcrypt
+from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.backends import default_backend
 
 HOST = "0.0.0.0"
 PORT = 12
 ENCODING = "utf-8"
 DB_PATH = "chat.db"
+KEYS_DIR = "user_keys"
 
 EMOJI_MAP = {
     ":)": "😊", ":(": "☹️", ":D": "😁", ":P": "😜", ";)": "😉", "B)": "😎",
@@ -37,19 +34,133 @@ def apply_emojis(text: str) -> str:
         text = text.replace(k, v)
     return text
 
-def hash_password(password: str) -> str:
-    """Hashea una contraseña usando bcrypt"""
-    salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
-    return hashed.decode('utf-8')
+def ensure_keys_directory():
+    """Asegura que exista el directorio para las claves"""
+    if not os.path.exists(KEYS_DIR):
+        os.makedirs(KEYS_DIR)
+        print(f"[CRYPTO] ✓ Directorio de claves creado: {KEYS_DIR}/")
 
-def verify_password(password: str, hashed: str) -> bool:
-    """Verifica una contraseña contra su hash"""
-    try:
-        return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
-    except Exception as e:
-        print(f"[BCRYPT ERROR] {e}")
-        return False
+def generate_key_pair(username: str):
+    """Genera un par de claves RSA (pública/privada) para un usuario"""
+    # Generar clave privada (2048 bits)
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+        backend=default_backend()
+    )
+    
+    # Derivar clave pública de la privada
+    public_key = private_key.public_key()
+    
+    # Serializar clave privada
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption()
+    )
+    
+    # Serializar clave pública
+    public_pem = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    
+    # Guardar las claves en archivos
+    ensure_keys_directory()
+    
+    private_path = os.path.join(KEYS_DIR, f"{username}_private.pem")
+    public_path = os.path.join(KEYS_DIR, f"{username}_public.pem")
+    
+    with open(private_path, 'wb') as f:
+        f.write(private_pem)
+    
+    with open(public_path, 'wb') as f:
+        f.write(public_pem)
+    
+    print(f"[CRYPTO] ✓ Par de claves generado para '{username}'")
+    print(f"         - Privada: {private_path}")
+    print(f"         - Pública: {public_path}")
+    
+    return public_pem.decode('utf-8')
+
+def load_public_key(username: str):
+    """Carga la clave pública de un usuario"""
+    public_path = os.path.join(KEYS_DIR, f"{username}_public.pem")
+    
+    if not os.path.exists(public_path):
+        return None
+    
+    with open(public_path, 'rb') as f:
+        public_pem = f.read()
+    
+    public_key = serialization.load_pem_public_key(
+        public_pem,
+        backend=default_backend()
+    )
+    
+    return public_key
+
+def load_private_key(username: str):
+    """Carga la clave privada de un usuario"""
+    private_path = os.path.join(KEYS_DIR, f"{username}_private.pem")
+    
+    if not os.path.exists(private_path):
+        return None
+    
+    with open(private_path, 'rb') as f:
+        private_pem = f.read()
+    
+    private_key = serialization.load_pem_private_key(
+        private_pem,
+        password=None,
+        backend=default_backend()
+    )
+    
+    return private_key
+
+def encrypt_password(username: str, password: str) -> str:
+    """Cifra una contraseña usando la clave PÚBLICA del usuario"""
+    public_key = load_public_key(username)
+    
+    if not public_key:
+        raise ValueError(f"No se encontró clave pública para {username}")
+    
+    # Cifrar con clave pública
+    encrypted = public_key.encrypt(
+        password.encode('utf-8'),
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+    
+    # Convertir bytes a string base64 para almacenar en DB
+    import base64
+    return base64.b64encode(encrypted).decode('utf-8')
+
+def decrypt_password(username: str, encrypted_b64: str) -> str:
+    """Descifra una contraseña usando la clave PRIVADA del usuario"""
+    private_key = load_private_key(username)
+    
+    if not private_key:
+        raise ValueError(f"No se encontró clave privada para {username}")
+    
+    # Decodificar de base64
+    import base64
+    encrypted = base64.b64decode(encrypted_b64.encode('utf-8'))
+    
+    # Descifrar con clave privada
+    decrypted = private_key.decrypt(
+        encrypted,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+    
+    return decrypted.decode('utf-8')
 
 def init_db():
     """Inicializa la base de datos con usuarios por defecto si no existe"""
@@ -59,7 +170,7 @@ def init_db():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
-            password_hash TEXT NOT NULL
+            password_encrypted TEXT NOT NULL
         )
     ''')
     
@@ -74,48 +185,61 @@ def init_db():
             ('beto', '4567')
         ]
         
-        print("[DB] Creando usuarios por defecto con contraseñas hasheadas...")
+        print("[DB] Creando usuarios con cifrado ASIMÉTRICO (RSA)...")
+        print("="*60)
         for username, plain_password in default_users:
-            hashed = hash_password(plain_password)
-            cursor.execute('INSERT INTO users (username, password_hash) VALUES (?, ?)', 
-                         (username, hashed))
-            print(f"[DB]  ✓ Usuario '{username}' creado")
+            # Generar par de claves para cada usuario
+            generate_key_pair(username)
+            
+            # Cifrar contraseña con clave PÚBLICA
+            encrypted = encrypt_password(username, plain_password)
+            
+            cursor.execute('INSERT INTO users (username, password_encrypted) VALUES (?, ?)', 
+                         (username, encrypted))
+            print(f"[DB]  ✓ Usuario '{username}' creado con RSA")
+        
+        print("="*60)
         
     conn.commit()
     conn.close()
 
 def authenticate_user(username: str, password: str) -> bool:
-    """Autentica un usuario contra la base de datos usando bcrypt"""
+    """Autentica un usuario descifrando con su clave PRIVADA"""
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute('SELECT password_hash FROM users WHERE username = ?', (username,))
+        cursor.execute('SELECT password_encrypted FROM users WHERE username = ?', (username,))
         result = cursor.fetchone()
         conn.close()
         
         if result:
-            return verify_password(password, result[0])
+            # Descifrar con clave PRIVADA
+            decrypted = decrypt_password(username, result[0])
+            return decrypted == password
         return False
     except Exception as e:
-        print(f"[DB ERROR] {e}")
+        print(f"[AUTH ERROR] {e}")
         return False
 
 def register_user(username: str, password: str) -> bool:
-    """Registra un nuevo usuario en la base de datos"""
+    """Registra un nuevo usuario con su par de claves RSA"""
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         
-        # Verificar si el usuario ya existe
         cursor.execute('SELECT username FROM users WHERE username = ?', (username,))
         if cursor.fetchone():
             conn.close()
             return False
         
-        # Crear el nuevo usuario con contraseña hasheada
-        hashed = hash_password(password)
-        cursor.execute('INSERT INTO users (username, password_hash) VALUES (?, ?)', 
-                      (username, hashed))
+        # Generar par de claves
+        generate_key_pair(username)
+        
+        # Cifrar con clave pública
+        encrypted = encrypt_password(username, password)
+        
+        cursor.execute('INSERT INTO users (username, password_encrypted) VALUES (?, ?)', 
+                      (username, encrypted))
         conn.commit()
         conn.close()
         return True
@@ -153,10 +277,9 @@ class ChatServer:
         self.channels = {}
         self.running = True
         print(f"[INIT] Servidor escuchando en {host}:{port}")
-        print(f"[INIT] Seguridad: Contraseñas hasheadas con bcrypt ✓")
+        print(f"[INIT] 🔐 Seguridad: Cifrado ASIMÉTRICO con RSA-2048")
 
     def broadcast_to_channel(self, channel: str, obj: dict, exclude_client=None):
-        """Envía un mensaje a todos los usuarios de un canal"""
         if channel not in self.channels:
             return
         
@@ -166,7 +289,6 @@ class ChatServer:
                     client.send_json(obj)
 
     def broadcast_all_channels_system(self, text: str):
-        """Envía un mensaje de sistema a TODOS los clientes conectados"""
         payload = {"type": "system", "text": apply_emojis(text)}
         with self.clients_lock:
             for c in list(self.clients):
@@ -174,7 +296,6 @@ class ChatServer:
                     c.send_json(payload)
 
     def remove_client_from_channel(self, client):
-        """Remueve un cliente de su canal actual"""
         if client.channel and client.channel in self.channels:
             self.channels[client.channel].discard(client)
             if not self.channels[client.channel]:
@@ -188,7 +309,6 @@ class ChatServer:
         client.channel = None
 
     def add_client_to_channel(self, client, channel):
-        """Agrega un cliente a un canal"""
         self.remove_client_from_channel(client)
         
         if channel not in self.channels:
@@ -258,7 +378,6 @@ class ChatServer:
         print("[SHUTDOWN] Servidor cerrado.")
 
     def cleanup(self):
-        """Limpieza final del servidor"""
         with self.clients_lock:
             for c in list(self.clients):
                 try:
@@ -271,7 +390,7 @@ class ChatServer:
             pass
 
     def admin_console(self):
-        print("[ADMIN] Comandos: sys:<mensaje> | list | shutdown | adduser:<user>:<pass>")
+        print("[ADMIN] Comandos: sys:<msg> | list | shutdown | adduser:<user>:<pass> | showpass:<user> | showkeys:<user>")
         while self.running:
             try:
                 line = input()
@@ -293,6 +412,35 @@ class ChatServer:
                             print(f"[ADMIN] Error: el usuario '{username}' ya existe")
                     else:
                         print("[ADMIN] Formato: adduser:<usuario>:<contraseña>")
+                
+                elif line.startswith("showpass:"):
+                    username = line[len("showpass:"):].strip()
+                    try:
+                        conn = sqlite3.connect(DB_PATH)
+                        cursor = conn.cursor()
+                        cursor.execute('SELECT password_encrypted FROM users WHERE username = ?', (username,))
+                        result = cursor.fetchone()
+                        conn.close()
+                        
+                        if result:
+                            decrypted = decrypt_password(username, result[0])
+                            print(f"[ADMIN] Contraseña de '{username}': {decrypted}")
+                        else:
+                            print(f"[ADMIN] Usuario '{username}' no encontrado")
+                    except Exception as e:
+                        print(f"[ADMIN ERROR] {e}")
+                
+                elif line.startswith("showkeys:"):
+                    username = line[len("showkeys:"):].strip()
+                    private_path = os.path.join(KEYS_DIR, f"{username}_private.pem")
+                    public_path = os.path.join(KEYS_DIR, f"{username}_public.pem")
+                    
+                    if os.path.exists(private_path) and os.path.exists(public_path):
+                        print(f"[ADMIN] Claves de '{username}':")
+                        print(f"  - Privada: {private_path}")
+                        print(f"  - Pública: {public_path}")
+                    else:
+                        print(f"[ADMIN] No se encontraron claves para '{username}'")
                         
                 elif line.strip() == "list":
                     with self.clients_lock:
@@ -310,7 +458,7 @@ class ChatServer:
                     break
                     
                 else:
-                    print("[ADMIN] Comandos: sys:<msg> | list | shutdown | adduser:<user>:<pass>")
+                    print("[ADMIN] Comandos: sys:<msg> | list | shutdown | adduser:<user>:<pass> | showpass:<user> | showkeys:<user>")
                     
             except EOFError:
                 break
@@ -318,7 +466,6 @@ class ChatServer:
                 print(f"[ADMIN ERROR] {e}")
 
     def handle_client(self, client):
-        """Maneja la comunicación con un cliente específico"""
         print(f"[CONN] Cliente conectado desde {client.addr}")
         
         try:
@@ -348,7 +495,7 @@ class ChatServer:
                         if authenticate_user(username, password):
                             client.user = username
                             client.send_json({"type": "system", "text": f"Autenticado como {username}"})
-                            print(f"[AUTH] ✓ Usuario {username} autenticado desde {client.addr}")
+                            print(f"[AUTH] ✓ Usuario {username} autenticado (RSA) desde {client.addr}")
                         else:
                             client.send_json({"type": "system", "text": "Usuario o contraseña inválidos"})
                             print(f"[AUTH] ✗ Intento fallido para {username} desde {client.addr}")
