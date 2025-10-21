@@ -1,0 +1,21 @@
+{
+  "algoritmo": "SHA-256",
+  "total_archivos": 3,
+  "archivos": [
+    {
+      "ruta": ".\\client.py",
+      "sha256": "1fdabb69d819e1a1af830c19894848c387cf09ab0705ef63be17caf023a7b790",
+      "tamaño_bytes": 6584
+    },
+    {
+      "ruta": ".\\gen_SHA.py",
+      "sha256": "6701064061a1d6fce39cbb6a346869a4ff2b3bc93748f4eb4cea0f800242d440",
+      "tamaño_bytes": 5380
+    },
+    {
+      "ruta": ".\\server.py",
+      "sha256": "efad7eb2453533eaf2d1b3426afb5382fb49e4c945257ae4936d0e28564e60ac",
+      "tamaño_bytes": 21977
+    }
+  ]
+}
