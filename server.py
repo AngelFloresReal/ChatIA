@@ -539,8 +539,6 @@ class ChatServer:
                         if received_hash != calculated_hash:
                             print(f"[SECURITY WARNING] Hash SHA256 no coincide para el mensaje de {client.user} en {channel}. Mensaje: {text}")
                             client.send_json({"type": "system", "text": "¡Advertencia de seguridad! El hash del mensaje no coincide. Posible alteración.", "color": "\033[91m"})
-                            # Opcional: podrías decidir no difundir el mensaje si el hash no coincide
-                            # continue 
                         
                         processed_text = apply_emojis(text)
                         message = {
@@ -548,7 +546,7 @@ class ChatServer:
                             "channel": channel,
                             "from": client.user,
                             "text": processed_text,
-                            "hash": calculated_hash # Reenviar el hash verificado o el original, dependiendo de la política
+                            "hash": calculated_hash 
                         }
                         
                         self.broadcast_to_channel(channel, message)
