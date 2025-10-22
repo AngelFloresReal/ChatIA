@@ -12,6 +12,7 @@ import threading
 import json
 import sys
 import os
+import hashlib
 
 ENCODING = "utf-8"
 RESET_COLOR = '\033[0m'
@@ -181,7 +182,10 @@ def main():
                 print("  No estás en ningún canal. Usa /join <canal> para unirte.")
                 continue
                 
-            payload = {"type": "msg", "channel": current_channel, "text": line}
+            message_text = line
+            message_hash = hashlib.sha256(message_text.encode(ENCODING)).hexdigest()
+
+            payload = {"type": "msg", "channel": current_channel, "text": message_text, "hash": message_hash}
             sock.sendall((json.dumps(payload, ensure_ascii=False) + "\n").encode(ENCODING))
             
     except KeyboardInterrupt:

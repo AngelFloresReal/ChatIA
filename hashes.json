@@ -1,21 +1,46 @@
 {
   "algoritmo": "SHA-256",
-  "total_archivos": 3,
+  "total_archivos": 8,
   "archivos": [
     {
+      "ruta": ".\\change_log.txt",
+      "sha256": "5a3ea8a757b9932d98992f3c1ac1b8d274d3567475ef6c6548da3430df78fba8",
+      "tamaño_bytes": 1328
+    },
+    {
       "ruta": ".\\client.py",
-      "sha256": "1fdabb69d819e1a1af830c19894848c387cf09ab0705ef63be17caf023a7b790",
-      "tamaño_bytes": 6584
+      "sha256": "f2f44a989a6e5e8aa8a8e7cd398d2c71f5efbea7e12e41e88e16f7c31c9c0a07",
+      "tamaño_bytes": 6751
     },
     {
       "ruta": ".\\gen_SHA.py",
-      "sha256": "6701064061a1d6fce39cbb6a346869a4ff2b3bc93748f4eb4cea0f800242d440",
-      "tamaño_bytes": 5380
+      "sha256": "b01a572498651bd03a61f4f229da02247ef0e4c64c345e1fb5f6986aee083dc9",
+      "tamaño_bytes": 5312
+    },
+    {
+      "ruta": ".\\hashes.json",
+      "sha256": "da9b880acdac4640e1cb477f2ddb21db9e57aa48136f3cf5840c8db1292a8795",
+      "tamaño_bytes": 1376
+    },
+    {
+      "ruta": ".\\HASHES_SHA256.md",
+      "sha256": "e74fb9cf9883bdc7de8b402862e20f13b845212aa34ddac3d3686e626b23d3b1",
+      "tamaño_bytes": 976
+    },
+    {
+      "ruta": ".\\README.md",
+      "sha256": "b35694d3820beb47bd3984241d60e68139b2e337f7b5ec1332983be1ff82fa57",
+      "tamaño_bytes": 2928
+    },
+    {
+      "ruta": ".\\requirements.txt",
+      "sha256": "606a5f5924ecbc2ee87c1f1da2f88c87cb78595b196608ef8828512c97b2bfb0",
+      "tamaño_bytes": 22
     },
     {
       "ruta": ".\\server.py",
-      "sha256": "efad7eb2453533eaf2d1b3426afb5382fb49e4c945257ae4936d0e28564e60ac",
-      "tamaño_bytes": 21977
+      "sha256": "f3ccdde1c03dcd81d59972c1a1b30811ab63a09ed99be0b1ddb9264fa710dd73",
+      "tamaño_bytes": 22830
     }
   ]
 }

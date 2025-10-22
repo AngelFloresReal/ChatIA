@@ -44,10 +44,10 @@ def obtener_hashes_en_directorio(directorio, ignorar_carpetas=None, extensiones_
                 hash_sha256 = sha256_de_archivo(ruta)
                 tamaño = os.path.getsize(ruta)
                 resultados.append((ruta, hash_sha256, tamaño))
-                print(f"✓ {ruta}")
+                print(f" {ruta}")
                 
             except Exception as e:
-                print(f"⚠️  Error con {ruta}: {e}")
+                print(f" Error con {ruta}: {e}")
     
     return resultados
 
@@ -114,27 +114,27 @@ def comparar_hashes(archivo_json):
         for ruta, hash_actual, _ in resultados_actuales:
             if ruta in hashes_previos:
                 if hashes_previos[ruta] != hash_actual:
-                    print(f"⚠️  MODIFICADO: {ruta}")
+                    print(f"MODIFICADO: {ruta}")
                     cambios += 1
             else:
-                print(f"✨ NUEVO: {ruta}")
+                print(f"NUEVO: {ruta}")
         
         for ruta_previa in hashes_previos:
             if not any(ruta == ruta_previa for ruta, _, _ in resultados_actuales):
-                print(f"🗑️  ELIMINADO: {ruta_previa}")
+                print(f"ELIMINADO: {ruta_previa}")
         
         if cambios == 0:
-            print("✓ Todos los archivos mantienen su integridad")
+            print("Todos los archivos mantienen su integridad")
         else:
-            print(f"\n⚠️  {cambios} archivo(s) modificado(s)")
+            print(f"\n{cambios} archivo(s) modificado(s)")
         
     except FileNotFoundError:
-        print(f"⚠️  No se encontró {archivo_json}")
+        print(f"No se encontró {archivo_json}")
 
 if __name__ == "__main__":
     import sys
     
-    print("🔐 Generador de Hashes SHA-256")
+    print("Generador de Hashes SHA-256")
     print("=" * 50)
     
     proyecto = "."
@@ -142,15 +142,15 @@ if __name__ == "__main__":
     # Generar hashes
     resultados = obtener_hashes_en_directorio(proyecto)
     
-    print(f"\n✓ {len(resultados)} archivos procesados")
+    print(f"\n{len(resultados)} archivos procesados")
     
     # Escribir en Markdown
     escribir_readme(resultados)
-    print("✓ Hashes guardados en HASHES_SHA256.md")
+    print("Hashes guardados en HASHES_SHA256.md")
     
     # Escribir en JSON
     escribir_json(resultados)
-    print("✓ Hashes guardados en hashes.json")
+    print("Hashes guardados en hashes.json")
     
     # Si se pasa argumento 'compare', comparar con hashes previos
     if len(sys.argv) > 1 and sys.argv[1] == "compare":

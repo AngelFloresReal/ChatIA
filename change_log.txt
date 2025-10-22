@@ -1,0 +1,31 @@
+Control de Cambios del Proyecto de Chat Seguro
+===============================================
+
+Versión Inicial (22 de octubre de 2025)
+----------------------------------------
+
+**Descripción:**
+Configuración inicial del proyecto de chat con autenticación RSA, canales y consola de administración.
+Se han establecido los archivos base y la estructura del proyecto.
+
+**Archivos `.py` y sus Hashes SHA-256 (Inicial):
+**
+*   `client.py`: 1fdabb69d819e1a1af830c19894848c387cf09ab0705ef63be17caf023a7b790
+*   `server.py`: efad7eb2453533eaf2d1b3426afb5382fb49e4c945257ae4936d0e28564e60ac
+
+---
+
+Versión 1.1 - Implementación SHA256 para Mensajes (22 de octubre de 2025)
+-----------------------------------------------------------------------
+
+**Descripción:**
+Se ha implementado la funcionalidad de hashing SHA256 para la integridad de los mensajes de chat.
+Ahora, el cliente calcula y envía un hash SHA256 con cada mensaje, y el servidor verifica este hash al recibirlo.
+Si el hash no coincide, el servidor registra una advertencia de seguridad y notifica al cliente.
+
+**Archivos `.py` y sus Hashes SHA-256 (Actualizados):
+**
+*   `client.py`: f2f44a989a6e5e8aa8a8e7cd398d2c71f5efbea7e12e41e88e16f7c31c9c0a07
+*   `server.py`: f3ccdde1c03dcd81d59972c1a1b30811ab63a09ed99be0b1ddb9264fa710dd73
+
+---
