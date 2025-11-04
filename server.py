@@ -15,11 +15,11 @@ from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.backends import default_backend
 
-HOST = "0.0.0.0"
-PORT = 12
-ENCODING = "utf-8"
-DB_PATH = "chat.db"
-KEYS_DIR = "user_keys"
+# Importar configuración
+from config import (
+    SERVER_HOST, SERVER_PORT, SERVER_ENCODING, DB_PATH, KEYS_DIR,
+    RSA_KEY_SIZE, SOCKET_TIMEOUT, get_default_users, print_config, validate_config
+)
 
 EMOJI_MAP = {
     ":)": "😊", ":(": "☹️", ":D": "😁", ":P": "😜", ";)": "😉", "B)": "😎",
@@ -42,10 +42,10 @@ def ensure_keys_directory():
 
 def generate_key_pair(username: str):
     """Genera un par de claves RSA (pública/privada) para un usuario"""
-    # Generar clave privada (2048 bits)
+    # Generar clave privada
     private_key = rsa.generate_private_key(
         public_exponent=65537,
-        key_size=2048,
+        key_size=RSA_KEY_SIZE,
         backend=default_backend()
     )
     
@@ -77,7 +77,7 @@ def generate_key_pair(username: str):
     with open(public_path, 'wb') as f:
         f.write(public_pem)
     
-    print(f"[CRYPTO] ✓ Par de claves generado para '{username}'")
+    print(f"[CRYPTO] ✓ Par de claves generado para '{username}' ({RSA_KEY_SIZE} bits)")
     print(f"         - Privada: {private_path}")
     print(f"         - Pública: {public_path}")
     
@@ -176,29 +176,25 @@ def init_db():
     
     cursor.execute('SELECT COUNT(*) FROM users')
     if cursor.fetchone()[0] == 0:
-        default_users = [
-            ('admin', 'admin123'),
-            ('user1', 'pass1'),
-            ('user2', 'pass2'),
-            ('test', 'test'),
-            ('alice', '1234'),
-            ('beto', '4567')
-        ]
+        default_users = get_default_users()
         
-        print("[DB] Creando usuarios con cifrado ASIMÉTRICO (RSA)...")
-        print("="*60)
-        for username, plain_password in default_users:
-            # Generar par de claves para cada usuario
-            generate_key_pair(username)
+        if default_users:
+            print(f"[DB] Creando {len(default_users)} usuarios con cifrado ASIMÉTRICO (RSA-{RSA_KEY_SIZE})...")
+            print("="*60)
+            for username, plain_password in default_users:
+                # Generar par de claves para cada usuario
+                generate_key_pair(username)
+                
+                # Cifrar contraseña con clave PÚBLICA
+                encrypted = encrypt_password(username, plain_password)
+                
+                cursor.execute('INSERT INTO users (username, password_encrypted) VALUES (?, ?)', 
+                             (username, encrypted))
+                print(f"[DB]  ✓ Usuario '{username}' creado con RSA")
             
-            # Cifrar contraseña con clave PÚBLICA
-            encrypted = encrypt_password(username, plain_password)
-            
-            cursor.execute('INSERT INTO users (username, password_encrypted) VALUES (?, ?)', 
-                         (username, encrypted))
-            print(f"[DB]  ✓ Usuario '{username}' creado con RSA")
-        
-        print("="*60)
+            print("="*60)
+        else:
+            print("[DB] No se crearán usuarios por defecto (configuración deshabilitada)")
         
     conn.commit()
     conn.close()
@@ -261,7 +257,7 @@ class ClientInfo:
             s = json.dumps(obj, ensure_ascii=False) + "\n"
             with self.lock:
                 if self.alive:
-                    self.sock.sendall(s.encode(ENCODING))
+                    self.sock.sendall(s.encode(SERVER_ENCODING))
         except Exception:
             self.alive = False
 
@@ -271,13 +267,13 @@ class ChatServer:
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind((host, port))
         self.sock.listen()
-        self.sock.settimeout(1.0)
+        self.sock.settimeout(SOCKET_TIMEOUT)
         self.clients_lock = threading.Lock()
         self.clients = set()
         self.channels = {}
         self.running = True
         print(f"[INIT] Servidor escuchando en {host}:{port}")
-        print(f"[INIT] 🔐 Seguridad: Cifrado ASIMÉTRICO con RSA-2048")
+        print(f"[INIT] 🔐 Seguridad: Cifrado ASIMÉTRICO con RSA-{RSA_KEY_SIZE}")
 
     def broadcast_to_channel(self, channel: str, obj: dict, exclude_client=None):
         if channel not in self.channels:
@@ -327,6 +323,15 @@ class ChatServer:
             client.send_json({"type": "system", "text": f"Te uniste al canal {channel}"})
 
     def start(self):
+        # Validar configuración
+        errors = validate_config()
+        if errors:
+            print("❌ ERRORES EN CONFIGURACIÓN:")
+            for error in errors:
+                print(f"  - {error}")
+            return
+        
+        print_config()
         init_db()
         
         threading.Thread(target=self.admin_console, daemon=True).start()
@@ -469,7 +474,7 @@ class ChatServer:
         print(f"[CONN] Cliente conectado desde {client.addr}")
         
         try:
-            f = client.sock.makefile("r", encoding=ENCODING)
+            f = client.sock.makefile("r", encoding=SERVER_ENCODING)
             
             while client.alive and self.running:
                 try:
@@ -570,5 +575,5 @@ class ChatServer:
             client.alive = False
 
 if __name__ == "__main__":
-    server = ChatServer(HOST, PORT)
+    server = ChatServer(SERVER_HOST, SERVER_PORT)
     server.start()

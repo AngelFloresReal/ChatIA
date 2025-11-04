@@ -13,7 +13,11 @@ import json
 import sys
 import os
 
-ENCODING = "utf-8"
+# Importar configuración
+from config import (
+    DEFAULT_CLIENT_HOST, DEFAULT_CLIENT_PORT, SERVER_ENCODING
+)
+
 RESET_COLOR = '\033[0m'
 
 def supports_color():
@@ -30,7 +34,7 @@ def colorize_text(text, color_code):
     return text
 
 def recv_thread(sock, auth_flag):
-    f = sock.makefile("r", encoding=ENCODING)
+    f = sock.makefile("r", encoding=SERVER_ENCODING)
     try:
         while True:
             line = f.readline()
@@ -82,16 +86,18 @@ def recv_thread(sock, auth_flag):
 def main():
     print("CHAT IA")
     print("=" * 30)
+    print(f"Configuración por defecto: {DEFAULT_CLIENT_HOST}:{DEFAULT_CLIENT_PORT}")
+    print()
     
-    host = input("Servidor (por defecto localhost): ").strip() or "localhost"
-    port_str = input("Puerto (por defecto 12): ").strip() or "12"
+    host = input(f"Servidor (Enter para '{DEFAULT_CLIENT_HOST}'): ").strip() or DEFAULT_CLIENT_HOST
+    port_str = input(f"Puerto (Enter para '{DEFAULT_CLIENT_PORT}'): ").strip() or str(DEFAULT_CLIENT_PORT)
     try:
         port = int(port_str)
     except:
         print("Puerto inválido")
         return
 
-    print("\n Inicio de sesión")
+    print("\n🔐 Inicio de sesión")
     username = input("Usuario: ").strip()
     password = input("Contraseña: ").strip()
     if not username or not password:
@@ -101,9 +107,9 @@ def main():
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect((host, port))
-        print(f"Conectado correctamente a {host}:{port}")
+        print(f"✓ Conectado correctamente a {host}:{port}")
     except Exception as e:
-        print(f"Error de conexión: {e}")
+        print(f"❌ Error de conexión: {e}")
         return
 
     auth_payload = {
@@ -111,28 +117,28 @@ def main():
         "username": username,
         "password": password
     }
-    sock.sendall((json.dumps(auth_payload, ensure_ascii=False) + "\n").encode(ENCODING))
+    sock.sendall((json.dumps(auth_payload, ensure_ascii=False) + "\n").encode(SERVER_ENCODING))
 
     auth_flag = {"status": None}
     threading.Thread(target=recv_thread, args=(sock, auth_flag), daemon=True).start()
 
-    print("Autenticando...")
+    print("🔄 Autenticando...")
     print("...")
     while auth_flag["status"] is None:
         pass
 
     if not auth_flag["status"]:
-        print("Error de autenticación. Cerrando cliente.")
+        print("❌ Error de autenticación. Cerrando cliente.")
         return
 
-    print("¡Autenticación exitosa!")
+    print("✓ ¡Autenticación exitosa!")
     canal = input("Canal a unir (por ejemplo 'general') — deja vacío para unirse después: ").strip()
     current_channel = None
     if canal:
-        sock.sendall((json.dumps({"type": "join", "channel": canal}, ensure_ascii=False) + "\n").encode(ENCODING))
+        sock.sendall((json.dumps({"type": "join", "channel": canal}, ensure_ascii=False) + "\n").encode(SERVER_ENCODING))
         current_channel = canal
 
-    print("\n Chat iniciado!")
+    print("\n💬 Chat iniciado!")
     print("Comandos: /join <canal>, /quit, /help")
     print("=" * 50)
     
@@ -143,12 +149,12 @@ def main():
                 continue
                 
             if line.startswith("/quit"):
-                print(" Saliendo...")
+                print("👋 Saliendo...")
                 sock.close()
                 break
                 
             if line.startswith("/help"):
-                print("\  Comandos disponibles:")
+                print("\n📋 Comandos disponibles:")
                 print("  /join <canal>  - Unirse a un canal")
                 print("  /quit          - Salir del chat")
                 print("  /help          - Mostrar esta ayuda")
@@ -159,7 +165,7 @@ def main():
                 continue
                 
             if line.startswith("/colors"):
-                print("\n Prueba de colores:")
+                print("\n🎨 Prueba de colores:")
                 test_colors = [
                     '\033[91m', '\033[92m', '\033[93m', '\033[94m', 
                     '\033[95m', '\033[96m', '\033[97m'
@@ -172,23 +178,23 @@ def main():
             if line.startswith("/join "):
                 newch = line.split(maxsplit=1)[1].strip()
                 if newch:
-                    sock.sendall((json.dumps({"type": "join", "channel": newch}, ensure_ascii=False) + "\n").encode(ENCODING))
+                    sock.sendall((json.dumps({"type": "join", "channel": newch}, ensure_ascii=False) + "\n").encode(SERVER_ENCODING))
                     current_channel = newch
-                    print(f" Cambiando a canal: {newch}")
+                    print(f"🔄 Cambiando a canal: {newch}")
                 continue
                 
             if not current_channel:
-                print("  No estás en ningún canal. Usa /join <canal> para unirte.")
+                print("⚠️  No estás en ningún canal. Usa /join <canal> para unirte.")
                 continue
                 
             payload = {"type": "msg", "channel": current_channel, "text": line}
-            sock.sendall((json.dumps(payload, ensure_ascii=False) + "\n").encode(ENCODING))
+            sock.sendall((json.dumps(payload, ensure_ascii=False) + "\n").encode(SERVER_ENCODING))
             
     except KeyboardInterrupt:
         print("\n👋 Cerrando cliente...")
         sock.close()
     except Exception as e:
-        print(f" Error: {e}")
+        print(f"❌ Error: {e}")
         sock.close()
 
 if __name__ == "__main__":
