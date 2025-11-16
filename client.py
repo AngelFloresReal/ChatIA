@@ -97,7 +97,7 @@ def main():
         print("Puerto inválido")
         return
 
-    print("\n🔐 Inicio de sesión")
+    print("\n Inicio de sesión")
     username = input("Usuario: ").strip()
     password = input("Contraseña: ").strip()
     if not username or not password:
@@ -109,7 +109,7 @@ def main():
         sock.connect((host, port))
         print(f"✓ Conectado correctamente a {host}:{port}")
     except Exception as e:
-        print(f"❌ Error de conexión: {e}")
+        print(f"Error de conexión: {e}")
         return
 
     auth_payload = {
@@ -165,7 +165,7 @@ def main():
                 continue
                 
             if line.startswith("/colors"):
-                print("\n🎨 Prueba de colores:")
+                print("\n Prueba de colores:")
                 test_colors = [
                     '\033[91m', '\033[92m', '\033[93m', '\033[94m', 
                     '\033[95m', '\033[96m', '\033[97m'
@@ -180,7 +180,7 @@ def main():
                 if newch:
                     sock.sendall((json.dumps({"type": "join", "channel": newch}, ensure_ascii=False) + "\n").encode(SERVER_ENCODING))
                     current_channel = newch
-                    print(f"🔄 Cambiando a canal: {newch}")
+                    print(f"Cambiando a canal: {newch}")
                 continue
                 
             if not current_channel:
@@ -194,7 +194,7 @@ def main():
         print("\n👋 Cerrando cliente...")
         sock.close()
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"Error: {e}")
         sock.close()
 
 if __name__ == "__main__":
