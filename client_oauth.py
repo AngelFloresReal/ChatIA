@@ -6,6 +6,8 @@ import threading
 import json
 import sys
 import os
+import getpass
+import base64
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -303,11 +305,14 @@ def main():
                 
             if line.startswith("/help"):
                 print("\n📋 Comandos disponibles:")
-                print("  /join <canal>  - Unirse a un canal")
-                print("  /quit          - Salir del chat")
-                print("  /help          - Mostrar esta ayuda")
-                print("  /whoami        - Ver tu información")
-                print("  /refresh       - Refrescar token OAuth")
+                print("  /join <canal>           - Unirse a un canal")
+                print("  /quit                   - Salir del chat")
+                print("  /help                   - Mostrar esta ayuda")
+                print("  /whoami                 - Ver tu información")
+                print("  /refresh                - Refrescar token OAuth")
+                print("\n📝 Comandos de firma digital:")
+                print("  /create_sign <archivo>  - Crear solicitud de firma (admin)")
+                print("  /sign <token>           - Firmar documento con tu PFX")
                 if current_channel:
                     print(f"  Canal actual: {current_channel}")
                 print()
@@ -324,6 +329,73 @@ def main():
             if line.startswith("/refresh"):
                 print("\n🔄 Para refrescar token, elimina 'oauth_token.json' y reinicia el cliente")
                 print()
+                continue
+            
+            if line.startswith("/create_sign "):
+                if not current_channel:
+                    print("⚠️  Debes estar en un canal para crear solicitudes de firma")
+                    continue
+                filepath = line.split(maxsplit=1)[1].strip() if len(line.split()) > 1 else None
+                if not filepath:
+                    print("⚠️  Especifica la ruta del archivo: /create_sign <ruta_archivo>")
+                    continue
+                
+                try:
+                    import base64
+                    with open(filepath, 'rb') as f:
+                        doc_data = base64.b64encode(f.read()).decode('utf-8')
+                    
+                    filename = os.path.basename(filepath)
+                    payload = {
+                        "type": "create_sign_request",
+                        "document": doc_data,
+                        "filename": filename
+                    }
+                    sock.sendall((json.dumps(payload, ensure_ascii=False) + "\n").encode(SERVER_ENCODING))
+                    print(f"📤 Enviando documento para crear solicitud de firma...")
+                except FileNotFoundError:
+                    print(f"❌ Archivo no encontrado: {filepath}")
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                continue
+            
+            if line.startswith("/sign "):
+                parts = line.split(maxsplit=1)
+                if len(parts) < 2:
+                    print("⚠️  Uso: /sign <token>")
+                    print("   El servidor te pedirá tu certificado PFX y contraseña")
+                    continue
+                
+                token = parts[1].strip()
+                
+                # Pedir certificado PFX
+                cert_path = input("📄 Ruta a tu certificado PFX: ").strip()
+                if not cert_path or not os.path.exists(cert_path):
+                    print("❌ Certificado no encontrado")
+                    continue
+                
+                # Pedir contraseña del certificado
+                import getpass
+                cert_password = getpass.getpass("🔐 Contraseña del certificado: ")
+                if not cert_password:
+                    print("❌ Se requiere contraseña del certificado")
+                    continue
+                
+                try:
+                    import base64
+                    with open(cert_path, 'rb') as f:
+                        cert_data = base64.b64encode(f.read()).decode('utf-8')
+                    
+                    payload = {
+                        "type": "sign_document",
+                        "token": token,
+                        "certificate": cert_data,
+                        "cert_password": cert_password
+                    }
+                    sock.sendall((json.dumps(payload, ensure_ascii=False) + "\n").encode(SERVER_ENCODING))
+                    print("📤 Enviando certificado para firmar documento...")
+                except Exception as e:
+                    print(f"❌ Error: {e}")
                 continue
                 
             if line.startswith("/join "):

@@ -307,6 +307,7 @@ Si tienes usuarios con autenticación tradicional y quieres migrar a OAuth:
 - [Documentación OAuth 2.0 de Google](https://developers.google.com/identity/protocols/oauth2)
 - [Google Auth Python Library](https://google-auth.readthedocs.io/)
 - [Guía de Seguridad OAuth](https://oauth.net/2/)
+- [README_SIGNATURES](README_SIGNATURES.md)
 
 ---
 

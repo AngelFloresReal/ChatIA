@@ -11,6 +11,10 @@ import sys
 import os
 import ssl
 import time
+import base64
+import uuid
+import tempfile
+from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.backends import default_backend
@@ -43,6 +47,11 @@ SSL_KEYFILE = os.path.join(SSL_CERT_DIR, "server.key")
 
 # Cache de tokens OAuth verificados
 token_cache = {}
+
+# Sistema de solicitudes de firma
+signing_requests = {}  # {token: {doc_path, created_by, created_at}}
+signed_documents_dir = Path("signed_documents")
+signed_documents_dir.mkdir(exist_ok=True)
 
 EMOJI_MAP = {
     ":)": "😊", ":(": "☹️", ":D": "😁", ":P": "😜", ";)": "😉", "B)": "😎",
@@ -414,6 +423,7 @@ class ChatServer:
         self.clients = set()
         self.channels = {}
         self.running = True
+        self.signing_requests = {}  # {token: {doc_path, created_by, created_at, filename}}
         
         protocol = "HTTPS/SSL" if self.use_ssl else "HTTP"
         auth_methods = "RSA + OAuth 2.0" if OAUTH_ENABLED else "RSA"
@@ -573,6 +583,13 @@ class ChatServer:
                         for ch, members in self.channels.items():
                             names = [f"{c.user}({c.auth_method or '?'})" for c in members if c.user]
                             print(f" - {ch}: {names}")
+                
+                elif line.strip() == "sign_requests":
+                    print(f"\n📋 Solicitudes de firma activas: {len(self.signing_requests)}")
+                    for token, info in self.signing_requests.items():
+                        age = int(time.time() - info["created_at"])
+                        print(f"  Token: {token[:8]}... | Creado por: {info['created_by']} | Archivo: {info['filename']} | Edad: {age}s")
+                    print()
                             
                 elif line.strip() == "shutdown":
                     self.shutdown()
@@ -651,10 +668,129 @@ class ChatServer:
                                 "text": apply_emojis(text)
                             }
                             self.broadcast_to_channel(client.channel, message)
+                    
+                    # Crear solicitud de firma (admin)
+                    elif msg_type == "create_sign_request":
+                        if not client.user:
+                            client.send_json({"type": "system", "text": "Debes autenticarte primero"})
+                            continue
+                        doc_data = obj.get("document", "").strip()
+                        filename = obj.get("filename", "documento.pdf").strip()
+                        
+                        if not doc_data:
+                            client.send_json({"type": "system", "text": "❌ No se proporcionó documento"})
+                            continue
+                        
+                        # Generar token único
+                        token = str(uuid.uuid4())
+                        
+                        # Guardar documento temporalmente (sin permitir descarga)
+                        doc_path = signed_documents_dir / f"{token}_{filename}"
+                        try:
+                            doc_bytes = base64.b64decode(doc_data)
+                            with open(doc_path, 'wb') as f:
+                                f.write(doc_bytes)
+                            
+                            self.signing_requests[token] = {
+                                "doc_path": str(doc_path),
+                                "created_by": client.user,
+                                "created_at": time.time(),
+                                "filename": filename
+                            }
+                            
+                            client.send_json({
+                                "type": "system",
+                                "text": f"✓ Solicitud de firma creada\n🔗 Token: {token}\n📄 Envía este token al firmante"
+                            })
+                        except Exception as e:
+                            client.send_json({"type": "system", "text": f"❌ Error: {e}"})
+                    
+                    # Firmar documento con PFX del usuario
+                    elif msg_type == "sign_document":
+                        if not client.user:
+                            client.send_json({"type": "system", "text": "Debes autenticarte primero"})
+                            continue
+                        
+                        token = obj.get("token", "").strip()
+                        cert_data = obj.get("certificate", "").strip()
+                        cert_password = obj.get("cert_password", "").strip()
+                        
+                        if not token or token not in self.signing_requests:
+                            client.send_json({"type": "system", "text": "❌ Token inválido o expirado"})
+                            continue
+                        
+                        if not cert_data or not cert_password:
+                            client.send_json({"type": "system", "text": "❌ Se requiere certificado PFX y contraseña"})
+                            continue
+                        
+                        request_info = self.signing_requests[token]
+                        doc_path = Path(request_info["doc_path"])
+                        
+                        if not doc_path.exists():
+                            client.send_json({"type": "system", "text": "❌ Documento no encontrado"})
+                            continue
+                        
+                        try:
+                            # Guardar certificado temporalmente
+                            cert_bytes = base64.b64decode(cert_data)
+                            with tempfile.NamedTemporaryFile(delete=False, suffix='.pfx') as cert_file:
+                                cert_file.write(cert_bytes)
+                                temp_cert_path = cert_file.name
+                            
+                            # Importar y usar DigitalSignService
+                            try:
+                                from digital_sign_service import DigitalSignService, SignatureMetadata
+                                
+                                signer = DigitalSignService(
+                                    certificate_path=temp_cert_path,
+                                    certificate_password=cert_password
+                                )
+                                
+                                metadata = SignatureMetadata(
+                                    reason=f"Firmado por {client.user}",
+                                    location="Servidor de firma digital",
+                                    contact=client.user
+                                )
+                                
+                                # Firmar documento
+                                signed_path = signer.sign_file(
+                                    str(doc_path),
+                                    output_dir=str(signed_documents_dir),
+                                    metadata=metadata,
+                                    attach_original=True
+                                )
+                                
+                                # Guardar documento firmado con nombre único
+                                final_name = f"{client.user}_{request_info['filename']}_firmado.pdf"
+                                final_path = signed_documents_dir / final_name
+                                if signed_path != final_path:
+                                    import shutil
+                                    shutil.move(str(signed_path), str(final_path))
+                                
+                                # Limpiar certificado temporal
+                                os.unlink(temp_cert_path)
+                                
+                                # Eliminar solicitud (ya fue firmada)
+                                del self.signing_requests[token]
+                                
+                                client.send_json({
+                                    "type": "system",
+                                    "text": f"✓ Documento firmado exitosamente\n📄 Guardado en servidor: {final_name}"
+                                })
+                                
+                            except ImportError:
+                                client.send_json({"type": "system", "text": "❌ Módulo de firma digital no disponible"})
+                            except Exception as e:
+                                if os.path.exists(temp_cert_path):
+                                    os.unlink(temp_cert_path)
+                                client.send_json({"type": "system", "text": f"❌ Error al firmar: {e}"})
+                                
+                        except Exception as e:
+                            client.send_json({"type": "system", "text": f"❌ Error procesando certificado: {e}"})
                             
                 except json.JSONDecodeError:
                     continue
-                except Exception:
+                except Exception as e:
                     break
                     
         except Exception:
